@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Tareas</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📝 Mi Lista de Tareas</h1>
+        </header>
+        
+        <div class="input-section">
+            <input type="text" id="taskInput" placeholder="Escribe una nueva tarea..." maxlength="100">
+            <button id="addBtn">Agregar</button>
+        </div>
+        
+        <div class="filter-section">
+            <button class="filter-btn active" data-filter="all">Todas</button>
+            <button class="filter-btn" data-filter="pending">Pendientes</button>
+            <button class="filter-btn" data-filter="completed">Completadas</button>
+        </div>
+        
+        <div class="stats">
+            <span id="taskCount">0 tareas</span>
+            <button id="clearCompleted">Limpiar completadas</button>
+        </div>
+        
+        <ul id="taskList" class="task-list" ondrop="drop(event)" ondragover="allowDrop(event)">
+            <!-- Las tareas se agregarán aquí dinámicamente -->
+        </ul>
+        
+        <div id="emptyState" class="empty-state">
+            <p>🎯 ¡No hay tareas! Agrega una nueva tarea para comenzar.</p>
+        </div>
+    </div>
+    
+    <script>
+        // Variables globales
+        let tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+        let currentFilter = 'all';
+        
+        // Elementos del DOM
+        const taskInput = document.getElementById('taskInput');
+        const addBtn = document.getElementById('addBtn');
+        const taskList = document.getElementById('taskList');
+        const taskCount = document.getElementById('taskCount');
+        const clearCompleted = document.getElementById('clearCompleted');
+        const emptyState = document.getElementById('emptyState');
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        
+        // Inicializar la aplicación
+        function init() {
+            renderTasks();
+            updateStats();
+            setupEventListeners();
+        }
+        
+        // Configurar event listeners
+        function setupEventListeners() {
+            addBtn.addEventListener('click', addTask);
+            taskInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') addTask();
+            });
+            clearCompleted.addEventListener('click', clearCompletedTasks);
+            
+            filterBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    filterBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentFilter = btn.dataset.filter;
+                    renderTasks();
+                });
+            });
+        }
+        
+        // Agregar nueva tarea
+        function addTask() {
+            const text = taskInput.value.trim();
+            if (text === '') return;
+            
+            const task = {
+                id: Date.now(),
+                text: text,
+                completed: false,
+                createdAt: new Date().toISOString()
+            };
+            
+            tasks.unshift(task);
+            taskInput.value = '';
+            saveTasks();
+            renderTasks();
+            updateStats();
+        }
+        
+        // Eliminar tarea
+        function deleteTask(id) {
+            tasks = tasks.filter(task => task.id !== id);
+            saveTasks();
+            renderTasks();
+            updateStats();
+        }
+        
+        // Alternar estado de completado
+        function toggleTask(id) {
+            const task = tasks.find(task => task.id === id);
+            if (task) {
+                task.completed = !task.completed;
+                saveTasks();
+                renderTasks();
+                updateStats();
+            }
+        }
+        
+        // Editar tarea
+        function editTask(id) {
+            const task = tasks.find(task => task.id === id);
+            if (!task) return;
+            
+            const newText = prompt('Editar tarea:', task.text);
+            if (newText !== null && newText.trim() !== '') {
+                task.text = newText.trim();
+                saveTasks();
+                renderTasks();
+            }
+        }
+        
+        // Limpiar tareas completadas
+        function clearCompletedTasks() {
+            tasks = tasks.filter(task => !task.completed);
+            saveTasks();
+            renderTasks();
+            updateStats();
+        }
+        
+        // Filtrar tareas
+        function getFilteredTasks() {
+            switch (currentFilter) {
+                case 'pending':
+                    return tasks.filter(task => !task.completed);
+                case 'completed':
+                    return tasks.filter(task => task.completed);
+                default:
+                    return tasks;
+            }
+        }
+        
+        // Renderizar tareas
+        function renderTasks() {
+            const filteredTasks = getFilteredTasks();
+            
+            if (filteredTasks.length === 0) {
+                taskList.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            
+            taskList.innerHTML = filteredTasks.map(task => `
+                <li class="task-item ${task.completed ? 'completed' : ''}" 
+                    data-id="${task.id}" 
+                    draggable="true" 
+                    ondragstart="dragStart(event)" 
+                    ondragend="dragEnd(event)"
+                    ondragover="dragOver(event)"
+                    ondrop="dropTask(event)">
+                    <div class="task-content">
+                        <div class="drag-handle" title="Arrastrar para reordenar">⋮⋮</div>
+                        <input type="checkbox" ${task.completed ? 'checked' : ''} 
+                               onchange="toggleTask(${task.id})" class="task-checkbox">
+                        <span class="task-text">${escapeHtml(task.text)}</span>
+                    </div>
+                    <div class="task-actions">
+                        <button onclick="editTask(${task.id})" class="edit-btn" title="Editar">✏️</button>
+                        <button onclick="deleteTask(${task.id})" class="delete-btn" title="Eliminar">🗑️</button>
+                    </div>
+                </li>
+            `).join('');
+        }
+        
+        // Actualizar estadísticas
+        function updateStats() {
+            const totalTasks = tasks.length;
+            const completedTasks = tasks.filter(task => task.completed).length;
+            const pendingTasks = totalTasks - completedTasks;
+            
+            let statsText = '';
+            if (currentFilter === 'all') {
+                statsText = `${totalTasks} tareas (${pendingTasks} pendientes, ${completedTasks} completadas)`;
+            } else if (currentFilter === 'pending') {
+                statsText = `${pendingTasks} tareas pendientes`;
+            } else {
+                statsText = `${completedTasks} tareas completadas`;
+            }
+            
+            taskCount.textContent = statsText;
+            clearCompleted.style.display = completedTasks > 0 ? 'block' : 'none';
+        }
+        
+        // Guardar tareas en localStorage
+        function saveTasks() {
+            localStorage.setItem('tasks', JSON.stringify(tasks));
+        }
+        
+        // Escapar HTML para prevenir XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Variables para drag and drop
+        let draggedElement = null;
+        let draggedIndex = -1;
+        
+        // Funciones de drag and drop
+        function allowDrop(ev) {
+            ev.preventDefault();
+        }
+        
+        function dragStart(ev) {
+            draggedElement = ev.target;
+            draggedIndex = Array.from(taskList.children).indexOf(draggedElement);
+            draggedElement.classList.add('dragging');
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('text/html', draggedElement.outerHTML);
+        }
+        
+        function dragEnd(ev) {
+            draggedElement.classList.remove('dragging');
+            draggedElement = null;
+            draggedIndex = -1;
+        }
+        
+        function dragOver(ev) {
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'move';
+            
+            const afterElement = getDragAfterElement(taskList, ev.clientY);
+            const dragging = document.querySelector('.dragging');
+            
+            if (afterElement == null) {
+                taskList.appendChild(dragging);
+            } else {
+                taskList.insertBefore(dragging, afterElement);
+            }
+        }
+        
+        function dropTask(ev) {
+            ev.preventDefault();
+            const afterElement = getDragAfterElement(taskList, ev.clientY);
+            const dragging = document.querySelector('.dragging');
+            
+            if (afterElement == null) {
+                taskList.appendChild(dragging);
+            } else {
+                taskList.insertBefore(dragging, afterElement);
+            }
+            
+            // Actualizar el orden en el array de tareas
+            updateTaskOrder();
+        }
+        
+        function getDragAfterElement(container, y) {
+            const draggableElements = [...container.querySelectorAll('.task-item:not(.dragging)')];
+            
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+                
+                if (offset < 0 && offset > closest.offset) {
+                    return { offset: offset, element: child };
+                } else {
+                    return closest;
+                }
+            }, { offset: Number.NEGATIVE_INFINITY }).element;
+        }
+        
+        function updateTaskOrder() {
+            const taskElements = Array.from(taskList.children);
+            const newOrder = taskElements.map(element => {
+                const taskId = parseInt(element.dataset.id);
+                return tasks.find(task => task.id === taskId);
+            }).filter(task => task !== undefined);
+            
+            tasks = newOrder;
+            saveTasks();
+        }
+        
+        function drop(ev) {
+            ev.preventDefault();
+        }
+        
+        // Inicializar la aplicación cuando se carga la página
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
